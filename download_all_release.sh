@@ -39,7 +39,7 @@ for v in "${VERSIONS[@]}"; do
         echo "  [FAIL] Download failed for version ${v}"
         rm -f "${out_file}.tmp"
     fi
-
+    sleep $((RANDOM % 30 + 60))
     echo
 done
 

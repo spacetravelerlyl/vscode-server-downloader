@@ -1,0 +1,16 @@
+# 通用压缩包格式
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+*.bz2
+*.xz
+*.zst
+*.lz4
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
+*.tar.lz4
+*.run

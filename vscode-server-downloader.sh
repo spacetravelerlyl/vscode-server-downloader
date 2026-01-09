@@ -49,10 +49,12 @@ load_version_commit_map() {
         err_log "Missing vscode_version_commit.sh"
         exit 1
     }
+
     # shellcheck source=/dev/null
     source "$g_version_commit_map_file"
+
     declare -p VSCODE_VERSION_COMMIT >/dev/null 2>&1 || {
-        err_log "Invalid version commit map"
+        err_log "Invalid version commit map: VSCODE_VERSION_COMMIT not found"
         exit 1
     }
 }
@@ -60,19 +62,24 @@ load_version_commit_map() {
 resolve_commit_id() {
     local input="$1"
 
-    # latest
+    # empty → let caller decide (latest)
     [ -z "$input" ] && { echo ""; return; }
 
-    # commit id
-    [[ "$input" =~ ^[0-9a-f]{30,40}$ ]] && { echo "$input"; return; }
+    # already a commit id
+    if [[ "$input" =~ ^[0-9a-f]{30,40}$ ]]; then
+        echo "$input"
+        return
+    fi
 
-    # version
+    # version → commit
     load_version_commit_map
+
     local cid="${VSCODE_VERSION_COMMIT[$input]:-}"
-    [ -n "$cid" ] || {
+    if [ -z "$cid" ]; then
         err_log "Version $input not found in version map"
         exit 1
-    }
+    fi
+
     info_log "Resolved version $input → commit $cid"
     echo "$cid"
 }
@@ -88,12 +95,7 @@ payload_path_get() {
 install_env_init() {
     local commit_id="$1"
     g_target_ser_dir="${g_vscode_ser_root}/cli/servers/Stable-${commit_id}/server"
-
-    if [ ! -d "$g_target_ser_dir" ]; then
-        mkdir -p "$g_target_ser_dir"
-    else
-        warn_log "Server directory already exists, skipping creation"
-    fi
+    mkdir -p "$g_target_ser_dir"
 }
 
 do_install_process() {

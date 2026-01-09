@@ -15,7 +15,21 @@ echo "[INFO] Fetching VS Code stable version list..."
 curl -fsSL "${API_URL}" -o "${TMP_JSON}"
 
 echo "[INFO] Parsing versions..."
-mapfile -t VERSIONS < <(jq -r '.[]' "${TMP_JSON}")
+# mapfile -t VERSIONS < <(jq -r '.[]' "${TMP_JSON}")
+# 改为只下载 1.81.1 之后的版本
+MIN_VERSION="1.81.1"
+
+mapfile -t VERSIONS < <(
+  jq -r --arg min "$MIN_VERSION" '
+    .[]
+    | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
+    | select(
+        (split(".") | map(tonumber))
+        >=
+        ($min | split(".") | map(tonumber))
+      )
+  ' "${TMP_JSON}"
+)
 
 echo "[INFO] Total versions: ${#VERSIONS[@]}"
 echo

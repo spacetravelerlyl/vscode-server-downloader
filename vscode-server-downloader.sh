@@ -101,7 +101,7 @@ resolve_commit_id() {
         exit 1
     fi
 
-    info_log "Resolved version $input -> commit $cid"
+    #info_log "Resolved version $input -> commit $cid"
     echo "$cid"
 }
 
@@ -171,7 +171,7 @@ download_vscode_cli() {
     local cli_bin
     cli_bin="$(find "$g_tmp_dir" -name code -print -quit)"
 
-    g_valid_version="$("$cli_bin" --version | awk 'NR==1')"
+    g_valid_version="$("$cli_bin" --version | awk 'NR==1 {for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print $i}')"
     g_valid_commit_id="$("$cli_bin" --version | awk '/commit/ {print $NF}' | tr -d ')')"
 
     mv "$cli_bin" "$g_tmp_dir/code-${g_valid_commit_id}"
@@ -200,6 +200,7 @@ download_main() {
 
     local commit_id
     commit_id="$(resolve_commit_id "$USER_INPUT")"
+    echo "Version=$USER_INPUT CommitId=${commit_id}"
 
     download_env_init
     download_vscode_cli "$commit_id"

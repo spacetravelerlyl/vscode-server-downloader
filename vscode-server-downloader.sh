@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # =============================================================================
@@ -44,6 +44,17 @@ is_network_connected() {
     command -v nc >/dev/null 2>&1 && nc -z -w1 223.5.5.5 53 >/dev/null 2>&1
 }
 
+# ---- version key normalization ----
+normalize_version_key() {
+    # 1.108.0 -> 1_108_0
+    echo "${1//./_}"
+}
+
+# =============================================================================
+# Version → Commit Map Handling
+# =============================================================================
+declare -A VSCODE_VERSION_COMMIT_NORM
+
 load_version_commit_map() {
     [ -f "$g_version_commit_map_file" ] || {
         err_log "Missing vscode_version_commit.sh"
@@ -54,15 +65,23 @@ load_version_commit_map() {
     source "$g_version_commit_map_file"
 
     declare -p VSCODE_VERSION_COMMIT >/dev/null 2>&1 || {
-        err_log "Invalid version commit map: VSCODE_VERSION_COMMIT not found"
+        err_log "Invalid version commit map"
         exit 1
     }
+
+    VSCODE_VERSION_COMMIT_NORM=()
+
+    local ver norm
+    for ver in "${!VSCODE_VERSION_COMMIT[@]}"; do
+        norm="$(normalize_version_key "$ver")"
+        VSCODE_VERSION_COMMIT_NORM["$norm"]="${VSCODE_VERSION_COMMIT[$ver]}"
+    done
 }
 
 resolve_commit_id() {
     local input="$1"
 
-    # empty → let caller decide (latest)
+    # empty -> latest (caller decides)
     [ -z "$input" ] && { echo ""; return; }
 
     # already a commit id
@@ -71,16 +90,18 @@ resolve_commit_id() {
         return
     fi
 
-    # version → commit
     load_version_commit_map
 
-    local cid="${VSCODE_VERSION_COMMIT[$input]:-}"
+    local key
+    key="$(normalize_version_key "$input")"
+
+    local cid="${VSCODE_VERSION_COMMIT_NORM[$key]:-}"
     if [ -z "$cid" ]; then
-        err_log "Version $input not found in version map"
+        err_log "Version $input not found"
         exit 1
     fi
 
-    info_log "Resolved version $input → commit $cid"
+    info_log "Resolved version $input -> commit $cid"
     echo "$cid"
 }
 
@@ -228,8 +249,10 @@ main() {
 
     if [ -n "$CHECK_VERSION" ]; then
         load_version_commit_map
-        if [[ -n "${VSCODE_VERSION_COMMIT[$CHECK_VERSION]:-}" ]]; then
-            echo "$CHECK_VERSION => ${VSCODE_VERSION_COMMIT[$CHECK_VERSION]}"
+        local key
+        key="$(normalize_version_key "$CHECK_VERSION")"
+        if [[ -n "${VSCODE_VERSION_COMMIT_NORM[$key]:-}" ]]; then
+            echo "$CHECK_VERSION => ${VSCODE_VERSION_COMMIT_NORM[$key]}"
             exit 0
         else
             echo "$CHECK_VERSION NOT FOUND"

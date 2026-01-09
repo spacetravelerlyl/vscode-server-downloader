@@ -24,6 +24,7 @@ g_version_commit_map_file="$(dirname "$g_self_script_abs_path")/vscode_version_c
 MODE="install"
 USER_INPUT=""
 CHECK_VERSION=""
+FORCE_INSTALL=0
 
 # =============================================================================
 # Logging
@@ -101,7 +102,6 @@ resolve_commit_id() {
         exit 1
     fi
 
-    #info_log "Resolved version $input -> commit $cid"
     echo "$cid"
 }
 
@@ -111,11 +111,38 @@ resolve_commit_id() {
 payload_path_get() {
     g_release_vscode_cli_file="$(find . -maxdepth 1 -type f -name "code-*" -print -quit)"
     g_release_vscode_ser_file="$(find . -maxdepth 1 -type f -name "vscode-server-linux-x64*" -print -quit)"
+
+    [ -f "$g_release_vscode_cli_file" ] || {
+        err_log "VS Code CLI payload not found"
+        exit 1
+    }
+
+    [ -f "$g_release_vscode_ser_file" ] || {
+        err_log "VS Code Server payload not found"
+        exit 1
+    }
 }
 
 install_env_init() {
     local commit_id="$1"
     g_target_ser_dir="${g_vscode_ser_root}/cli/servers/Stable-${commit_id}/server"
+}
+
+check_install_target() {
+    local cli_target
+    cli_target="$g_target_cli_dir/$(basename "$g_release_vscode_cli_file")"
+
+    if [[ -e "$cli_target" || -d "$g_target_ser_dir" ]]; then
+        if [[ "$FORCE_INSTALL" -eq 1 ]]; then
+            warn_log "Existing installation detected, force overwrite enabled"
+            rm -rf "$cli_target" "$g_target_ser_dir"
+        else
+            info_log "VS Code Server already installed, skip installation"
+            info_log "Use -f or --force to overwrite"
+            exit 0
+        fi
+    fi
+
     mkdir -p "$g_target_ser_dir"
 }
 
@@ -142,6 +169,7 @@ install_main() {
     )"
 
     install_env_init "$commit_id"
+    check_install_target
     do_install_process
     install_env_fini
 }
@@ -217,6 +245,7 @@ usage() {
 Usage:
   $0 -d [version|commit]     Download mode
   $0 -i                      Install mode (default)
+  $0 -f | --force            Force overwrite on install
   $0 --check-version <ver>
 EOF
 }
@@ -226,6 +255,10 @@ parse_args() {
         case "$1" in
             -d) MODE="download"; shift ;;
             -i) MODE="install"; shift ;;
+            -f|--force)
+                FORCE_INSTALL=1
+                shift
+                ;;
             --check-version)
                 CHECK_VERSION="$2"
                 shift 2

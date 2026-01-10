@@ -11,7 +11,7 @@
   - 运行安装
     ```bash
     ./makeself-2.7.1.run
-    mv makeself-2.7.1 /opt
+    mv makeself-2.7.1 /opt/makeself
     ```
   - 配置 PATH
     ```bash

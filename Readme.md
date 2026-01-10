@@ -1,10 +1,26 @@
 # 参考
 - https://github.com/megastep/makeself 
 
-# 下载环境依赖
+# 下载环境依赖(打包需要)
 - 依赖 makeself 工具
   有网络的 Linux 环境执行 apt install makeself, 也可手动到 https://github.com/megastep/makeself/releases 下载安装最新版本
+  - 下载安装包
+    ```bash
+    wget https://github.com/megastep/makeself/releases/download/release-2.7.1/makeself-2.7.1.run
+    ```
+  - 运行安装
+    ```bash
+    ./makeself-2.7.1.run
+    mv makeself-2.7.1 /opt
+    ```
+  - 配置 PATH
+    ```bash
+    # vim ~/.bashrc
+    export PATH="$PATH:/root/.local/bin:/opt/makeself"
+    ```
+
 - 依赖 wget 1.16+
+- 注意打包环境与运行环境最好是匹配的系统环境
 
 # 使用
 + 版本 与 commit_id 之间映射文件，一次性操作，可以复用已有的映射文件

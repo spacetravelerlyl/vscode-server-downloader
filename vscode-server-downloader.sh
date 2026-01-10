@@ -42,7 +42,8 @@ err_log(){ _log ERR  "$*"; }
 # Utilities
 # =============================================================================
 is_network_connected() {
-    command -v nc >/dev/null 2>&1 && nc -z -w1 223.5.5.5 53 >/dev/null 2>&1
+    #command -v nc >/dev/null 2>&1 && nc -z -w1 223.5.5.5 53 >/dev/null 2>&1
+    return 0
 }
 
 # ---- version key normalization ----

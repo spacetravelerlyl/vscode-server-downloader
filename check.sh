@@ -24,4 +24,7 @@ bash -c 'source ./vscode_version_commit.sh && declare -p VSCODE_VERSION_COMMIT >
 echo "[INFO] Checking version lookup..."
 bash ./vscode-server-downloader.sh --check-version 1.108.0 >/dev/null
 
+echo "[INFO] Checking commit fetcher help..."
+bash ./get_product_commitid.sh --help >/dev/null
+
 echo "[DONE] Checks passed."

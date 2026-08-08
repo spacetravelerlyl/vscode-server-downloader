@@ -21,6 +21,7 @@
 
 - 依赖 curl 或 wget 1.16+
 - 依赖 jq
+- 使用 git 模式生成 commit 映射时依赖 git
 - 注意打包环境与运行环境最好是匹配的系统环境
 
 # 使用
@@ -42,6 +43,27 @@
   + 使用 get_product_commitid.sh 生成 commit_id 映射文件 vscode-version-commit.sh
     ```
     bash get_product_commitid.sh
+    ```
+    默认使用 GitHub GraphQL API，需要设置 GITHUB_TOKEN：
+    ```
+    GITHUB_TOKEN=xxx bash get_product_commitid.sh
+    ```
+    也可以选择 REST API 或 git ls-remote 模式：
+    ```
+    bash get_product_commitid.sh api
+    bash get_product_commitid.sh git
+    ```
+    保留原有从本地 tar 包提取 product.json 的方式：
+    ```
+    bash get_product_commitid.sh local
+    ```
+    标准输出格式为：
+    ```
+    version commit_sha
+    ```
+    如只打印结果、不写入 vscode_version_commit.sh：
+    ```
+    bash get_product_commitid.sh git --no-write-sh
     ```
 
 + 使用 vscode-server-downloader.sh 下载指定版本（依赖 vscode-version-commit.sh）

@@ -10,6 +10,7 @@ g_target_cli_dir="${g_vscode_ser_root}"
 g_target_ser_dir=""
 
 g_tmp_dir="./tmp_vscode_server_payload"
+g_cache_dir="./.cache/vscode-server-downloader"
 
 g_release_vscode_cli_file=""
 g_release_vscode_ser_file=""
@@ -25,6 +26,7 @@ MODE="install"
 USER_INPUT=""
 CHECK_VERSION=""
 FORCE_INSTALL=0
+FORCE_DOWNLOAD=0
 
 # =============================================================================
 # Logging
@@ -42,8 +44,64 @@ err_log(){ _log ERR  "$*"; }
 # Utilities
 # =============================================================================
 is_network_connected() {
-    #command -v nc >/dev/null 2>&1 && nc -z -w1 223.5.5.5 53 >/dev/null 2>&1
-    return 0
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSI --connect-timeout 5 "https://update.code.visualstudio.com/api/releases/stable" >/dev/null 2>&1
+        return $?
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        wget -q --spider --timeout=5 "https://update.code.visualstudio.com/api/releases/stable" >/dev/null 2>&1
+        return $?
+    fi
+
+    err_log "Neither curl nor wget is available"
+    return 1
+}
+
+download_file() {
+    local target="$1" url="$2" tmp_target
+    tmp_target="${target}.tmp"
+
+    rm -f "$tmp_target"
+
+    if command -v curl >/dev/null 2>&1; then
+        if curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 -o "$tmp_target" "$url"; then
+            mv "$tmp_target" "$target"
+            return 0
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if wget -q --show-progress --tries=3 --timeout=10 -O "$tmp_target" "$url"; then
+            mv "$tmp_target" "$target"
+            return 0
+        fi
+    else
+        err_log "Neither curl nor wget is available"
+        return 1
+    fi
+
+    rm -f "$tmp_target"
+    return 1
+}
+
+copy_from_cache_or_download() {
+    local target="$1" cache_file="$2" url="$3"
+
+    mkdir -p "$(dirname "$target")" "$(dirname "$cache_file")"
+
+    if [[ "$FORCE_DOWNLOAD" -eq 0 && -f "$cache_file" ]]; then
+        info_log "Using cached file: $cache_file"
+        cp "$cache_file" "$target"
+        return
+    fi
+
+    is_network_connected || {
+        err_log "Network unavailable"
+        exit 1
+    }
+
+    info_log "Downloading: $url"
+    download_file "$cache_file" "$url"
+    cp "$cache_file" "$target"
 }
 
 # ---- version key normalization ----
@@ -148,8 +206,12 @@ check_install_target() {
 }
 
 do_install_process() {
+    local cli_target
+    cli_target="$g_target_cli_dir/$(basename "$g_release_vscode_cli_file")"
+
     info_log "Installing VS Code Server"
-    mv "$g_release_vscode_cli_file" "$g_target_cli_dir"
+    cp "$g_release_vscode_cli_file" "$cli_target"
+    chmod +x "$cli_target"
     tar -xf "$g_release_vscode_ser_file" --strip-components=1 -C "$g_target_ser_dir"
 }
 
@@ -180,21 +242,17 @@ install_main() {
 # =============================================================================
 download_env_init() {
     rm -rf "$g_tmp_dir"
-    mkdir -p "$g_tmp_dir"
-}
-
-do_download() {
-    local target="$1" url="$2"
-    wget -q --show-progress -O "$target" "$url"
+    mkdir -p "$g_tmp_dir" "$g_cache_dir/vscode-cli" "$g_cache_dir/vscode-server"
 }
 
 download_vscode_cli() {
     local commit_id="$1"
 
     local cli_tar="$g_tmp_dir/vscode-cli.tar.gz"
+    local cli_cache="$g_cache_dir/vscode-cli/${commit_id}.tar.gz"
     local cli_url="https://vscode.download.prss.microsoft.com/dbazure/download/stable/${commit_id}/vscode_cli_alpine_x64_cli.tar.gz"
 
-    do_download "$cli_tar" "$cli_url"
+    copy_from_cache_or_download "$cli_tar" "$cli_cache" "$cli_url"
     tar xf "$cli_tar" -C "$g_tmp_dir"
 
     local cli_bin
@@ -208,8 +266,10 @@ download_vscode_cli() {
 
 download_vscode_server() {
     local commit_id="$1"
+    local server_tar="$g_tmp_dir/vscode-server-linux-x64-${commit_id}.tar.gz"
+    local server_cache="$g_cache_dir/vscode-server/vscode-server-linux-x64-${commit_id}.tar.gz"
     local server_url="https://update.code.visualstudio.com/commit:${commit_id}/server-linux-x64/stable"
-    do_download "$g_tmp_dir/vscode-server-linux-x64-${commit_id}.tar.gz" "$server_url"
+    copy_from_cache_or_download "$server_tar" "$server_cache" "$server_url"
 }
 
 do_makeself() {
@@ -221,11 +281,6 @@ do_makeself() {
 
 download_main() {
     info_log "Download mode"
-
-    is_network_connected || {
-        err_log "Network unavailable"
-        exit 1
-    }
 
     local commit_id
     commit_id="$(resolve_commit_id "$USER_INPUT")"
@@ -244,9 +299,10 @@ download_main() {
 usage() {
     cat <<EOF
 Usage:
-  $0 -d [version|commit]     Download mode
+  $0 -d <version|commit>     Download mode
   $0 -i                      Install mode (default)
   $0 -f | --force            Force overwrite on install
+  $0 --force-download        Re-download files instead of using cache
   $0 --check-version <ver>
 EOF
 }
@@ -254,13 +310,29 @@ EOF
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -d) MODE="download"; shift ;;
+            -d)
+                MODE="download"
+                shift
+                if [[ $# -gt 0 && "$1" != -* ]]; then
+                    USER_INPUT="$1"
+                    shift
+                fi
+                ;;
             -i) MODE="install"; shift ;;
             -f|--force)
                 FORCE_INSTALL=1
                 shift
                 ;;
+            --force-download)
+                FORCE_DOWNLOAD=1
+                shift
+                ;;
             --check-version)
+                if [[ $# -lt 2 || "$2" == -* ]]; then
+                    err_log "--check-version requires a version"
+                    usage
+                    exit 1
+                fi
                 CHECK_VERSION="$2"
                 shift 2
                 ;;
@@ -269,11 +341,22 @@ parse_args() {
                 exit 0
                 ;;
             *)
+                if [[ -n "$USER_INPUT" ]]; then
+                    err_log "Unexpected argument: $1"
+                    usage
+                    exit 1
+                fi
                 USER_INPUT="$1"
                 shift
                 ;;
         esac
     done
+
+    if [[ "$MODE" == "download" && -z "$USER_INPUT" ]]; then
+        err_log "Download mode requires a version or commit"
+        usage
+        exit 1
+    fi
 }
 
 # =============================================================================

@@ -15,3 +15,4 @@
 *.tar.lz4
 *.run
 tmp_vscode_server_payload
+.cache

@@ -110,15 +110,14 @@ download_file() {
     local target="$1" url="$2" tmp_target
     tmp_target="${target}.tmp"
 
-    rm -f "$tmp_target"
-
+    # Keep the partial .tmp on failure so a retry resumes (-C -/-c) instead of restarting.
     if command -v curl >/dev/null 2>&1; then
-        if curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 -o "$tmp_target" "$url"; then
+        if curl -fL -C - --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 10 -o "$tmp_target" "$url"; then
             mv "$tmp_target" "$target"
             return 0
         fi
     elif command -v wget >/dev/null 2>&1; then
-        if wget -q --show-progress --tries=3 --timeout=10 -O "$tmp_target" "$url"; then
+        if wget -q --show-progress -c --tries=5 --timeout=10 -O "$tmp_target" "$url"; then
             mv "$tmp_target" "$target"
             return 0
         fi
@@ -127,7 +126,6 @@ download_file() {
         return 1
     fi
 
-    rm -f "$tmp_target"
     return 1
 }
 

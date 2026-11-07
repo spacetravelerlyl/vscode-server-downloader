@@ -27,4 +27,6 @@ bash ./vscode-server-downloader.sh --check-version 1.108.0 >/dev/null
 echo "[INFO] Checking commit fetcher help..."
 bash ./get_product_commitid.sh --help >/dev/null
 
+bash ./tests/offline-install.sh
+
 echo "[DONE] Checks passed."

@@ -5,7 +5,7 @@ set -euo pipefail
 # Global Variables
 # =============================================================================
 g_home_prefix=~
-g_vscode_ser_root="${g_home_prefix}/.vscode-server"
+g_vscode_ser_root="${VSCODE_AGENT_FOLDER:-${g_home_prefix}/.vscode-server}"
 g_target_cli_dir="${g_vscode_ser_root}"
 g_target_ser_dir=""
 
@@ -189,18 +189,30 @@ check_install_target() {
     local cli_target
     cli_target="$g_target_cli_dir/$(basename "$g_release_vscode_cli_file")"
 
-    if [[ -e "$cli_target" || -d "$g_target_ser_dir" ]]; then
-        if [[ "$FORCE_INSTALL" -eq 1 ]]; then
-            warn_log "Existing installation detected, force overwrite enabled"
-            rm -rf "$cli_target" "$g_target_ser_dir"
-        else
+    # Never follow version-specific links into an older/shared installation.
+    local path
+    for path in "$cli_target" "$(dirname "$g_target_ser_dir")" "$g_target_ser_dir"; do
+        if [[ -L "$path" ]]; then
+            err_log "Refusing to replace symlink installation: $path"
+            exit 1
+        fi
+    done
+    if [[ -e "$cli_target" && ! -f "$cli_target" ]]; then
+        err_log "CLI target is not a regular file: $cli_target"
+        exit 1
+    fi
+    if [[ -e "$g_target_ser_dir" && "$FORCE_INSTALL" -eq 0 ]]; then
+        if [[ -x "$cli_target" && -x "$g_target_ser_dir/bin/code-server" && -x "$g_target_ser_dir/node" ]]; then
             info_log "VS Code Server already installed, skip installation"
-            info_log "Use -f or --force to overwrite"
             exit 0
         fi
+        err_log "Existing installation preserved; use --force to repair this commit explicitly"
+        exit 1
     fi
 
-    mkdir -p "$g_target_ser_dir"
+    # Keep an existing installation until the replacement has been extracted and checked.
+    mkdir -p "$g_target_cli_dir" "$(dirname "$g_target_ser_dir")"
+
 }
 
 do_install_process() {
@@ -208,9 +220,33 @@ do_install_process() {
     cli_target="$g_target_cli_dir/$(basename "$g_release_vscode_cli_file")"
 
     info_log "Installing VS Code Server"
-    cp "$g_release_vscode_cli_file" "$cli_target"
-    chmod +x "$cli_target"
-    tar -xf "$g_release_vscode_ser_file" --strip-components=1 -C "$g_target_ser_dir"
+    local staging
+    staging="$(mktemp -d "$(dirname "$g_target_ser_dir")/.offline-XXXXXXXX")"
+    if ! tar --no-same-owner -xf "$g_release_vscode_ser_file" --strip-components=1 -C "$staging"; then
+        rm -rf "$staging"
+        err_log "Cannot extract VS Code Server payload"
+        exit 1
+    fi
+    if [[ ! -x "$staging/bin/code-server" || ! -x "$staging/node" ]]; then
+        rm -rf "$staging"
+        err_log "Invalid VS Code Server payload: missing executable bin/code-server or node"
+        exit 1
+    fi
+    if [[ ! -e "$cli_target" || "$FORCE_INSTALL" -eq 1 ]]; then
+        cp "$g_release_vscode_cli_file" "$staging/.offline-cli"
+        chmod +x "$staging/.offline-cli"
+        mv -f "$staging/.offline-cli" "$cli_target"
+    fi
+    rm -rf "$g_target_ser_dir"
+    mv "$staging" "$g_target_ser_dir"
+
+    # Older Remote-SSH clients (useExecServer=false) look here.
+    local legacy_target="$g_vscode_ser_root/bin/$(basename "$cli_target" | sed 's/^code-//')"
+    mkdir -p "$g_vscode_ser_root/bin"
+    if [[ ! -e "$legacy_target" && ! -L "$legacy_target" ]]; then
+        ln -s "$g_target_ser_dir" "$legacy_target"
+    fi
+
 }
 
 install_env_fini() {
@@ -223,11 +259,17 @@ install_main() {
     payload_path_get
 
     local commit_id
-    commit_id="$(
-        "$g_release_vscode_cli_file" --version \
-        | awk '/commit/ {print $NF}' \
-        | tr -d ')'
-    )"
+    # The filename carries the build identity; installation need not execute the CLI.
+    commit_id="$(basename "$g_release_vscode_cli_file")"
+    commit_id="${commit_id#code-}"
+    if [[ ! "$commit_id" =~ ^[0-9a-f]{40}$ ]]; then
+        err_log "Invalid CLI payload commit: $commit_id"
+        exit 1
+    fi
+    if [[ "$(basename "$g_release_vscode_ser_file")" != "vscode-server-linux-x64-${commit_id}.tar.gz" ]]; then
+        err_log "CLI and Server payload commits do not match"
+        exit 1
+    fi
 
     install_env_init "$commit_id"
     check_install_target
@@ -248,16 +290,21 @@ download_vscode_cli() {
 
     local cli_tar="$g_tmp_dir/vscode-cli.tar.gz"
     local cli_cache="$g_cache_dir/vscode-cli/${commit_id}.tar.gz"
-    local cli_url="https://vscode.download.prss.microsoft.com/dbazure/download/stable/${commit_id}/vscode_cli_alpine_x64_cli.tar.gz"
+    local cli_url="https://update.code.visualstudio.com/commit:${commit_id}/cli-alpine-x64/stable"
 
     copy_from_cache_or_download "$cli_tar" "$cli_cache" "$cli_url"
-    tar xf "$cli_tar" -C "$g_tmp_dir"
+    tar --no-same-owner -xf "$cli_tar" -C "$g_tmp_dir"
 
     local cli_bin
     cli_bin="$(find "$g_tmp_dir" -name code -print -quit)"
 
     g_valid_version="$("$cli_bin" --version | awk 'NR==1 {for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print $i}')"
     g_valid_commit_id="$("$cli_bin" --version | awk '/commit/ {print $NF}' | tr -d ')')"
+
+    if [[ ! "$g_valid_commit_id" =~ ^[0-9a-f]{40}$ || -z "$g_valid_version" || "$g_valid_commit_id" != "$commit_id" ]]; then
+        err_log "CLI version is invalid or does not match requested commit $commit_id"
+        exit 1
+    fi
 
     mv "$cli_bin" "$g_tmp_dir/code-${g_valid_commit_id}"
 }
@@ -301,6 +348,7 @@ Usage:
   $0 -i                      Install mode (default)
   $0 -f | --force            Force overwrite on install
   $0 --force-download        Re-download files instead of using cache
+  $0 --install-dir <path>    Server root (default: VSCODE_AGENT_FOLDER or ~/.vscode-server)
   $0 --check-version <ver>
 EOF
 }
@@ -324,6 +372,15 @@ parse_args() {
             --force-download)
                 FORCE_DOWNLOAD=1
                 shift
+                ;;
+            --install-dir)
+                if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+                    err_log "--install-dir requires a path"
+                    exit 1
+                fi
+                g_vscode_ser_root="$(realpath -m -- "$2")"
+                g_target_cli_dir="$g_vscode_ser_root"
+                shift 2
                 ;;
             --check-version)
                 if [[ $# -lt 2 || "$2" == -* ]]; then

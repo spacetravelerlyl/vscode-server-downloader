@@ -46,6 +46,24 @@ cmp "$work/existing-cli" "$root/code-$commit"
 printf keep > "$server/marker"
 install_server
 test -f "$server/marker"
+# A fresh install creates bin/<commit>; a skipped install repairs a missing bin.
+original_root="$root"
+root="$work/fresh root"
+install_server
+test -L "$root/bin/$commit"
+test "$(readlink "$root/bin/$commit")" = "$root/cli/servers/Stable-$commit/server"
+printf unchanged > "$root/cli/servers/Stable-$commit/server/marker"
+rm "$root/bin/$commit"
+rmdir "$root/bin"
+install_server
+test -L "$root/bin/$commit"
+test -f "$root/cli/servers/Stable-$commit/server/marker"
+# Preserve existing dangling legacy links as well.
+rm "$root/bin/$commit"
+ln -s "$work/missing" "$root/bin/$commit"
+install_server
+test "$(readlink "$root/bin/$commit")" = "$work/missing"
+root="$original_root"
 # Preserve an incomplete installation unless repair is explicitly requested.
 rm "$server/node"
 if install_server; then

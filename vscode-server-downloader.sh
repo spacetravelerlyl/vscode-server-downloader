@@ -185,6 +185,20 @@ install_env_init() {
     g_target_ser_dir="${g_vscode_ser_root}/cli/servers/Stable-${commit_id}/server"
 }
 
+ensure_legacy_link() {
+    local commit_id legacy_target
+    commit_id="$(basename "$g_release_vscode_cli_file")"
+    commit_id="${commit_id#code-}"
+    legacy_target="$g_vscode_ser_root/bin/$commit_id"
+    if [[ -e "$legacy_target" || -L "$legacy_target" ]]; then
+        info_log "Keeping existing legacy path: $legacy_target"
+        return
+    fi
+    mkdir -p "$g_vscode_ser_root/bin"
+    ln -s "$g_target_ser_dir" "$legacy_target"
+    info_log "Created legacy link: $legacy_target -> $g_target_ser_dir"
+}
+
 check_install_target() {
     local cli_target
     cli_target="$g_target_cli_dir/$(basename "$g_release_vscode_cli_file")"
@@ -203,10 +217,13 @@ check_install_target() {
     fi
     if [[ -e "$g_target_ser_dir" && "$FORCE_INSTALL" -eq 0 ]]; then
         if [[ -x "$cli_target" && -x "$g_target_ser_dir/bin/code-server" && -x "$g_target_ser_dir/node" ]]; then
+            ensure_legacy_link
             info_log "VS Code Server already installed, skip installation"
+            install_usage
             exit 0
         fi
-        err_log "Existing installation preserved; use --force to repair this commit explicitly"
+        err_log "Existing installation preserved; explicit force is required to repair this commit"
+        install_usage
         exit 1
     fi
 
@@ -240,12 +257,7 @@ do_install_process() {
     rm -rf "$g_target_ser_dir"
     mv "$staging" "$g_target_ser_dir"
 
-    # Older Remote-SSH clients (useExecServer=false) look here.
-    local legacy_target="$g_vscode_ser_root/bin/$(basename "$cli_target" | sed 's/^code-//')"
-    mkdir -p "$g_vscode_ser_root/bin"
-    if [[ ! -e "$legacy_target" && ! -L "$legacy_target" ]]; then
-        ln -s "$g_target_ser_dir" "$legacy_target"
-    fi
+    ensure_legacy_link
 
 }
 
@@ -318,7 +330,8 @@ download_vscode_server() {
 }
 
 do_makeself() {
-    makeself.sh --gzip "$g_tmp_dir" \
+    install_usage > "$g_tmp_dir/INSTALL-HELP.txt"
+    makeself.sh --help-header "$g_tmp_dir/INSTALL-HELP.txt" --gzip "$g_tmp_dir" \
         vscode-server-offline-"$g_valid_version"-"$g_valid_commit_id".run \
         "VSCode Server Offline Installer" \
         "./$g_installer_script_file_name" -i
@@ -341,6 +354,28 @@ download_main() {
 # =============================================================================
 # Argument Parsing
 # =============================================================================
+install_usage() {
+    cat <<'EOF'
+
+Offline .run installer usage (replace <version> and <commit> with your package name):
+  ./vscode-server-offline-<version>-<commit>.run
+  ./vscode-server-offline-<version>-<commit>.run -- --force
+  ./vscode-server-offline-<version>-<commit>.run -- -f
+  ./vscode-server-offline-<version>-<commit>.run -- --install-dir /data/vscode-server
+  ./vscode-server-offline-<version>-<commit>.run -- --help
+
+IMPORTANT: Put installer options AFTER --. The .run wrapper does not accept -f
+or --force directly. --force replaces only the commit in this package; other commits
+are preserved. Disconnect sessions using this commit before forcing a reinstall.
+Without --force, an existing complete installation is skipped and an incomplete
+Server is preserved with an error. Default root: VSCODE_AGENT_FOLDER or ~/.vscode-server.
+
+Wrapper options (no separator needed):
+  ./vscode-server-offline-<version>-<commit>.run --help
+  ./vscode-server-offline-<version>-<commit>.run --check
+EOF
+}
+
 usage() {
     cat <<EOF
 Usage:
@@ -350,7 +385,14 @@ Usage:
   $0 --force-download        Re-download files instead of using cache
   $0 --install-dir <path>    Server root (default: VSCODE_AGENT_FOLDER or ~/.vscode-server)
   $0 --check-version <ver>
+  $0 -h | --help
+
+Direct .sh installation (run from the extracted payload directory):
+  bash $0 -i --force
+  bash $0 -i --install-dir /data/vscode-server
+The .sh script accepts options directly. A packaged .run requires the -- separator.
 EOF
+    install_usage
 }
 
 parse_args() {

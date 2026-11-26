@@ -16,3 +16,6 @@
 *.run
 tmp_vscode_server_payload
 .cache
+.codegraph/
+vscode-server-error.txt
+vscode-server-offline-*.run.sha256
